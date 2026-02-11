@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # 1. MinIO: Local S3/GCS compatible object storage
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000" # API
+      - "9001:9001" # Console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+
+  # 2. MinIO Client: To create the bucket before Agent starts
+  create-bucket:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c " until mc alias set local http://minio:9000 minioadmin minioadmin; do echo '...waiting for minio...'; sleep 1; done; mc mb local/openclaw-data --ignore-existing; echo '✅ Bucket created'; "
+
+  # 3. OpenClaw Monolithic VM (The Agent)
+  openclaw-vm:
+    build:
+      context: .
+      dockerfile: Dockerfile.monolithic
+    depends_on:
+      create-bucket:
+        condition: service_completed_successfully
+    ports:
+      - "8081:8080"
+    environment:
+      # Direct gcloud storage/gsutil to talk to local MinIO instead of real GCS
+      CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE: http://minio:9000
+      # Credentials for MinIO
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      # Config
+      GCS_BUCKET: gs://openclaw-data
+      USER_ID: test-user-1
+      # Tell boto/gcloud to use path style access for MinIO
+      BOTO_CONFIG: /app/.boto
+      # LLM Keys (Required for "Out-of-the-box" usage)
+      ANTHROPIC_AUTH_TOKEN: cr_a6ca27cfad448bbc01246bce1bfad41c6587b06b26fd5a6a6b3a911f07296968
+      ANTHROPIC_BASE_URL: http://143.14.120.198:3000/api
+    volumes:
+      # Inject a .boto config for gsutil to work with MinIO
+      - ./local-simulation.boto:/app/.boto
+
+volumes:
+  minio_data:

@@ -566,6 +566,24 @@ export async function resolveImplicitProviders(params: {
     providers.qianfan = { ...buildQianfanProvider(), apiKey: qianfanKey };
   }
 
+  // Inject Anthropic Base URL if provided via env var
+  const anthropicBaseUrl = process.env.ANTHROPIC_BASE_URL?.trim();
+  if (anthropicBaseUrl) {
+    const existing = providers.anthropic;
+    if (!existing) {
+      // If no explicit anthropic config exists, create one with the custom base URL.
+      // We don't define models here so it uses the defaults from pi-ai registry,
+      // but redirects them to the new base URL.
+      providers.anthropic = {
+        api: "anthropic-messages",
+        baseUrl: anthropicBaseUrl,
+        models: [], // Empty models list implies "use defaults but override config"
+      };
+    } else if (!existing.baseUrl) {
+      providers.anthropic = { ...existing, baseUrl: anthropicBaseUrl };
+    }
+  }
+
   return providers;
 }
 

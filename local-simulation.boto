@@ -1,0 +1,7 @@
+[Credentials]
+gs_access_key_id = minioadmin
+gs_secret_access_key = minioadmin
+
+[Boto]
+is_secure = False
+calling_format = boto.s3.connection.OrdinaryCallingFormat

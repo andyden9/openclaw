@@ -1,0 +1,64 @@
+# ==================================================================================
+# OpenClaw Monolithic VM Dockerfile (GCP Edition)
+# 
+# Base: Node.js 22 (Debian)
+# Additional Info: Includes Google Cloud SDK for 'gcloud storage' commands
+# ==================================================================================
+
+FROM node:22-bookworm-slim
+
+# Install system dependencies and Google Cloud SDK
+RUN apt-get update && apt-get install -y \
+    curl \
+    gnupg \
+    python3 \
+    git \
+    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
+    && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add - \
+    && apt-get update && apt-get install -y google-cloud-cli \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Set up environment
+ENV NODE_ENV=production
+ENV OPENCLAW_PREFER_PNPM=true
+ENV OPENCLAW_STATE_DIR=/data
+ENV OPENCLAW_WORKSPACE_DIR=/workspace
+
+WORKDIR /app
+
+# Enable corepack for pnpm
+RUN corepack enable
+
+# Install all dependencies (needed for build)
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+# Copy source code
+COPY . .
+
+# Build the project
+RUN pnpm build
+
+# Build the Control UI (Frontend)
+# Set CI=true to prevent pnpm from waiting for interactive input (TTY)
+ENV CI=true
+WORKDIR /app/ui
+RUN pnpm install
+WORKDIR /app
+RUN node scripts/ui.js build
+
+# Copy and setup entrypoint script
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Create state directories
+RUN mkdir -p /data /workspace && chown -R node:node /data /workspace /app
+
+# Switch to non-root user
+USER node
+
+# Expose Gateway Port
+EXPOSE 8080
+
+# Use our custom entrypoint
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
